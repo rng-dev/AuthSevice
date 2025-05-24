@@ -23,7 +23,7 @@ const Layouts = () => {
           <Content style={{ margin: '0 16px' }}>
             <Breadcrumb
               style={{ margin: '16px 0' }}
-              items={[{ title: 'User' }]}
+              items={[{ title: '' }]}
             />
             <div
               style={{

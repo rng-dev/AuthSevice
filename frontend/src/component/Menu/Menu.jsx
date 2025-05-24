@@ -13,15 +13,16 @@ const Menu = () => {
   };
 
   const items = [
+
     {
       key: '1',
-      icon: <HomeOutlined />,
-      label: <Link to="/auth">Авторизация</Link>,
+      icon: <FormOutlined />,
+      label: <Link to="/register">Регистрация</Link>,
     },
     {
       key: '2',
-      icon: <FormOutlined />,
-      label: <Link to="/register">Регистрация</Link>,
+      icon: <HomeOutlined />,
+      label: <Link to="/auth">Авторизация</Link>,
     },
     {
       key: '3',
