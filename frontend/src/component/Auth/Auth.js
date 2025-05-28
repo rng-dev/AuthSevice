@@ -1,18 +1,14 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Button, Checkbox, Form, Input } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../component/AuthContext';
 import axios from 'axios';
 
 const Auth = () => {
-  const { login, checkAuth } = useAuth();
+  const { checkAuth } = useAuth();
   const navigate = useNavigate();
-  const [username, setUsername] = useState('');
-  const [show2FA, setShow2FA] = useState(false);
-  const [code, setCode] = useState('');
 
   const onFinish = async (values) => {
-    setUsername(values.username);
     try {
       await axios.post('http://localhost:8000/token',
         new URLSearchParams({
@@ -21,22 +17,10 @@ const Auth = () => {
         }),
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, withCredentials: true }
       );
-      setShow2FA(true);
-    } catch {
-      alert('Неверный логин или пароль');
-    }
-  };
-
-  const handle2FA = async () => {
-    try {
-      await axios.post('http://localhost:8000/verify-2fa', {
-        username,
-        code,
-      }, { withCredentials: true });
-      await checkAuth(); // обновить авторизацию
+      await checkAuth();
       navigate('/user');
     } catch {
-      alert('Неверный код подтверждения');
+      alert('Неверный логин или пароль');
     }
   };
 
@@ -82,18 +66,6 @@ const Auth = () => {
           </Button>
         </Form.Item>
       </Form>
-      {show2FA && (
-        <div>
-          <h3>Введите код подтверждения из письма</h3>
-          <Input
-            placeholder="Код"
-            value={code}
-            onChange={e => setCode(e.target.value)}
-            style={{ width: 200, marginRight: 8 }}
-          />
-          <Button type="primary" onClick={handle2FA}>Подтвердить</Button>
-        </div>
-      )}
     </>
   );
 };

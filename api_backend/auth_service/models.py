@@ -4,4 +4,5 @@ from django.contrib.auth.models import AbstractUser
 class User(AbstractUser):
     country = models.CharField(max_length=100, blank=True)
     phone = models.CharField(max_length=32, blank=True)
+    email_confirmed = models.BooleanField(default=False)
     # last_login, is_active, username, password уже есть в AbstractUser
