@@ -14,9 +14,6 @@ const countryPhoneMasks = {
 const Register = () => {
   const [form] = Form.useForm();
   const [selectedCountry, setSelectedCountry] = useState('Russia');
-  const [emailConfirmVisible, setEmailConfirmVisible] = useState(false);
-  const [emailForConfirm, setEmailForConfirm] = useState('');
-  const [confirmCode, setConfirmCode] = useState('');
 
   const onFinish = async (values) => {
     try {
@@ -27,24 +24,9 @@ const Register = () => {
         country: values.country,
         phone: values.phone,
       });
-      setEmailForConfirm(values.email);
-      setEmailConfirmVisible(true);
-      alert('На почту отправлен код подтверждения!');
+      alert('Регистрация успешна! Теперь вы можете войти.');
     } catch (e) {
       alert('Ошибка регистрации: ' + (e.response?.data?.detail || e.message));
-    }
-  };
-
-  const handleConfirmMail = async () => {
-    try {
-      await axios.post('http://localhost:8000/confirm-mail', {
-        email: emailForConfirm,
-        code: confirmCode,
-      });
-      alert('Почта подтверждена! Теперь вы можете войти.');
-      setEmailConfirmVisible(false);
-    } catch (e) {
-      alert('Ошибка подтверждения: ' + (e.response?.data?.detail || e.message));
     }
   };
 
@@ -138,18 +120,6 @@ const Register = () => {
           </Button>
         </Form.Item>
       </Form>
-      {emailConfirmVisible && (
-        <div>
-          <h3>Подтвердите почту</h3>
-          <Input
-            placeholder="Код из письма"
-            value={confirmCode}
-            onChange={e => setConfirmCode(e.target.value)}
-            style={{ width: 200, marginRight: 8 }}
-          />
-          <Button type="primary" onClick={handleConfirmMail}>Подтвердить</Button>
-        </div>
-      )}
     </>
   );
 };

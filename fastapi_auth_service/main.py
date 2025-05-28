@@ -34,7 +34,7 @@ app = FastAPI()
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Лучше указать конкретные адреса в продакшене
+    allow_origins=["*"],  # !!!указать конкретные адреса в продакшене
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,6 +48,7 @@ class User(BaseModel):
     email: str = ''
     country: str = ''
     phone: str = ''
+    email_confirmed: bool = False
 
 class UserInDB(User):
     hashed_password: str
@@ -67,10 +68,6 @@ class ConfirmMailRequest(BaseModel):
     email: str
     code: str
 
-class Verify2FARequest(BaseModel):
-    username: str
-    code: str
-
 # Вспомогательные функции
 def get_db():
     conn = psycopg2.connect(DATABASE_URL)
@@ -79,7 +76,7 @@ def get_db():
 def get_user(username: str) -> Optional[UserInDB]:
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id, username, password, is_active, email, country, phone FROM auth_service_user WHERE username=%s", (username,))
+    cur.execute("SELECT id, username, password, is_active, email, country, phone, email_confirmed FROM auth_service_user WHERE username=%s", (username,))
     row = cur.fetchone()
     cur.close()
     conn.close()
@@ -91,7 +88,8 @@ def get_user(username: str) -> Optional[UserInDB]:
             is_active=row[3],
             email=row[4] or '',
             country=row[5] or '',
-            phone=row[6] or ''
+            phone=row[6] or '',
+            email_confirmed=row[7] if len(row) > 7 else False
         )
     return None
 
@@ -128,7 +126,7 @@ def triple_jwt_check(token: str):
     user = get_user(username)
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or inactive")
-    # 3. Проверка last_login (например, не старше суток)
+    # 3. Проверка last_login
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT last_login FROM auth_service_user WHERE username=%s", (username,))
@@ -145,8 +143,7 @@ def triple_jwt_check(token: str):
         raise HTTPException(status_code=401, detail="Token expired by last_login")
     return user
 
-# Для хранения кодов подтверждения (в реальном проекте используйте Redis или БД)
-pending_2fa = {}
+# Для хранения кодов подтверждения email
 pending_email_confirm = {}
 
 def send_email(to_email, subject, body):
@@ -161,9 +158,7 @@ def send_email(to_email, subject, body):
     except Exception as e:
         raise RuntimeError(f"Ошибка отправки email через Django: {e}")
 
-# FastAPI endpoints
-
-# --- Регистрация с подтверждением почты ---
+# --- Регистрация ---
 @app.post("/register", response_model=User)
 def register(user: UserCreate):
     if get_user(user.username):
@@ -172,68 +167,21 @@ def register(user: UserCreate):
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO auth_service_user (username, password, is_active, is_staff, is_superuser, date_joined, first_name, last_name, email, country, phone) VALUES (%s, %s, false, false, false, now(), %s, %s, %s, %s, %s) RETURNING id",
+        "INSERT INTO auth_service_user (username, password, is_active, is_staff, is_superuser, date_joined, first_name, last_name, email, country, phone, email_confirmed) VALUES (%s, %s, true, false, false, now(), %s, %s, %s, %s, %s, false) RETURNING id",
         (user.username, hashed_password, '', '', user.email, user.country, user.phone)
     )
     user_id = cur.fetchone()[0]
     conn.commit()
     cur.close()
     conn.close()
+    return User(id=user_id, username=user.username, is_active=True, email=user.email, country=user.country, phone=user.phone, email_confirmed=False)
 
-    # Генерируем код подтверждения
-    code = str(random.randint(100000, 999999))
-    pending_email_confirm[user.email] = code
-
-    # Отправляем письмо
-    send_email(
-        user.email,
-        "Подтверждение регистрации",
-        f"Ваш код подтверждения: {code}"
-    )
-
-    return User(id=user_id, username=user.username, is_active=False, email=user.email, country=user.country, phone=user.phone)
-
-@app.post("/confirm-mail")
-def confirm_mail(data: ConfirmMailRequest):
-    email = data.email
-    code = data.code
-    if pending_email_confirm.get(email) != code:
-        raise HTTPException(status_code=400, detail="Неверный код подтверждения")
-    # Активируем пользователя
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("UPDATE auth_service_user SET is_active=true WHERE email=%s", (email,))
-    conn.commit()
-    cur.close()
-    conn.close()
-    pending_email_confirm.pop(email, None)
-    return {"detail": "Почта подтверждена"}
-
-# --- Двухэтапная аутентификация ---
+# --- Авторизация ---
 @app.post("/token")
 def login_for_access_token(response: Response, form_data: OAuth2PasswordRequestForm = Depends()):
     user = authenticate_user(form_data.username, form_data.password)
     if not user:
         raise HTTPException(status_code=401, detail="Incorrect username or password")
-    # Генерируем и отправляем код 2FA
-    code = str(random.randint(100000, 999999))
-    pending_2fa[user.username] = code
-    send_email(
-        user.email,
-        "Код подтверждения входа",
-        f"Ваш код подтверждения: {code}"
-    )
-    return {"detail": "2FA code sent to email"}
-
-@app.post("/verify-2fa")
-def verify_2fa(data: Verify2FARequest, response: Response):
-    username = data.username
-    code = data.code
-    if pending_2fa.get(username) != code:
-        raise HTTPException(status_code=400, detail="Неверный код подтверждения")
-    user = get_user(username)
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
     # Обновляем last_login
     conn = get_db()
     cur = conn.cursor()
@@ -253,8 +201,48 @@ def verify_2fa(data: Verify2FARequest, response: Response):
         samesite="Lax",
         max_age=60*60*24
     )
-    pending_2fa.pop(username, None)
     return {"access_token": access_token, "token_type": "bearer"}
+
+# --- Отправка кода подтверждения email ---
+@app.post("/send-confirm-mail")
+def send_confirm_mail(request: Request):
+    data = request.json() if hasattr(request, "json") else None
+    # Получаем пользователя из токена cookie
+    access_token = request.cookies.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = triple_jwt_check(access_token)
+    if not user.email:
+        raise HTTPException(status_code=400, detail="Нет email для подтверждения")
+    code = str(random.randint(100000, 999999))
+    pending_email_confirm[user.email] = code
+    send_email(
+        user.email,
+        "Подтверждение почты",
+        f"Ваш код подтверждения: {code}"
+    )
+    return {"detail": "Код отправлен на почту"}
+
+@app.post("/confirm-mail")
+def confirm_mail(data: ConfirmMailRequest, request: Request):
+    # Получаем пользователя из токена cookie
+    access_token = request.cookies.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = triple_jwt_check(access_token)
+    email = user.email
+    code = data.code
+    if pending_email_confirm.get(email) != code:
+        raise HTTPException(status_code=400, detail="Неверный код подтверждения")
+    # Подтверждаем email
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE auth_service_user SET email_confirmed=true WHERE email=%s", (email,))
+    conn.commit()
+    cur.close()
+    conn.close()
+    pending_email_confirm.pop(email, None)
+    return {"detail": "Почта подтверждена"}
 
 # Для /me и других защищённых эндпоинтов — получать токен из cookie:
 from fastapi import Cookie
@@ -270,5 +258,6 @@ def read_users_me(access_token: str = Cookie(None)):
         is_active=user.is_active,
         email=getattr(user, 'email', ''),
         country=getattr(user, 'country', ''),
-        phone=getattr(user, 'phone', '')
+        phone=getattr(user, 'phone', ''),
+        email_confirmed=getattr(user, 'email_confirmed', False)
     )
